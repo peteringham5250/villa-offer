@@ -73,6 +73,7 @@ const CONTAINER = 'iCloud.com.peteringham.VillaInghamTickets';
 
 let pendingResponse = null;
 let recordName = null;
+let currentUser = null;
 
 function boot() {
   recordName = new URLSearchParams(location.search).get('id');
@@ -88,9 +89,22 @@ function boot() {
     }]
   });
   loadOffer();
-  CloudKit.getDefaultContainer().setUpAuth().then(user => {
-    if (user && pendingResponse) respond(pendingResponse);
-  });
+
+  const container = CloudKit.getDefaultContainer();
+  container.setUpAuth().then(user => {
+    handleSignIn(user);
+    if (!user) {
+      container.whenUserSignsIn().then(handleSignIn).catch(() => {});
+    }
+  }).catch(() => {});
+}
+
+function handleSignIn(user) {
+  currentUser = user || null;
+  if (currentUser) {
+    document.getElementById('auth').classList.add('hidden');
+    if (pendingResponse) sendReply(pendingResponse);
+  }
 }
 
 function db() { return CloudKit.getDefaultContainer().publicCloudDatabase; }
@@ -129,24 +143,40 @@ function loadOffer() {
 }
 
 function respond(value) {
-  const container = CloudKit.getDefaultContainer();
-  if (!container._auth || !container._auth._userIdentity) {
-    // Not signed in yet — remember the choice and show the sign-in button.
-    pendingResponse = value;
+  pendingResponse = value;
+  if (!currentUser) {
+    // Not signed in yet — show the Apple sign-in button; the reply is sent
+    // automatically once sign-in completes (see handleSignIn).
     document.getElementById('auth').classList.remove('hidden');
-    setStatus('');
-    container.setUpAuth().then(user => { if (user) respond(value); });
+    setStatus('Sign in above to send your reply.');
+    document.getElementById('auth').scrollIntoView({ behavior: 'smooth' });
     return;
   }
-  setStatus('Sending…');
+  sendReply(value);
+}
+
+function sendReply(value) {
+  setStatus('Sending your reply…');
   db().fetchRecords(recordName).then(resp => {
-    if (resp.hasErrors) { setStatus('Something went wrong — try again.'); return; }
+    if (resp.hasErrors) { throw resp.errors[0]; }
     const record = resp.records[0];
     record.fields.response = { value: value };
     return db().saveRecords(record);
   }).then(resp => {
-    if (!resp || resp.hasErrors) { setStatus('Couldn’t save your reply — try again.'); return; }
+    if (!resp || resp.hasErrors) { throw (resp && resp.errors[0]) || new Error('save failed'); }
+    pendingResponse = null;
     showDone(value);
+  }).catch(err => {
+    const code = err && (err.ckErrorCode || err.serverErrorCode);
+    if (code === 'ACCESS_DENIED' || code === 'PERMISSION_VIOLATION') {
+      setStatus('⚠️ Reply blocked by permissions — tell Pete his CloudKit settings need the _icloud Write box ticked.');
+    } else if (code === 'AUTHENTICATION_REQUIRED' || code === 'AUTH_PERSIST_ERROR') {
+      currentUser = null;
+      document.getElementById('auth').classList.remove('hidden');
+      setStatus('Sign in above to send your reply.');
+    } else {
+      setStatus('⚠️ Couldn’t send your reply (' + (code || 'network error') + ') — try again.');
+    }
   });
 }
 
