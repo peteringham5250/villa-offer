@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Villa Match Invite</title>
+<style>
+  :root { color-scheme: light dark; }
+  body {
+    font-family: -apple-system, system-ui, sans-serif;
+    margin: 0; padding: 24px;
+    background: #f5f2f4; color: #1a1a1a;
+    display: flex; justify-content: center;
+  }
+  @media (prefers-color-scheme: dark) {
+    body { background: #1c1418; color: #f0e8ec; }
+    .card { background: #2a1f25 !important; }
+  }
+  .card {
+    max-width: 420px; width: 100%;
+    background: white; border-radius: 16px;
+    padding: 24px; box-shadow: 0 4px 24px rgba(103,14,54,.15);
+  }
+  h1 { color: #670E36; font-size: 1.3rem; margin: 0 0 4px; }
+  .detail { margin: 12px 0; line-height: 1.5; }
+  .label { font-size: .75rem; text-transform: uppercase; letter-spacing: .05em; opacity: .6; }
+  button {
+    display: block; width: 100%; margin: 10px 0; padding: 14px;
+    font-size: 1rem; font-weight: 600; border: none; border-radius: 12px;
+    cursor: pointer; background: #670E36; color: white;
+  }
+  button:active { background: #94BEE5; color: #670E36; }
+  button.secondary { background: #94BEE5; color: #670E36; }
+  button.decline { background: #e5e0e3; color: #1a1a1a; }
+  #status { margin-top: 16px; font-weight: 600; text-align: center; }
+  #auth { margin-top: 16px; }
+  .hidden { display: none; }
+</style>
+</head>
+<body>
+<div class="card">
+  <h1 id="title">Loading invite…</h1>
+  <div id="details" class="hidden">
+    <div class="detail"><span class="label">Kickoff</span><br><span id="kickoff"></span></div>
+    <div class="detail"><span class="label">Ground</span><br><span id="venue"></span></div>
+    <div class="detail" id="lunchBlock"><span class="label">Lunch first</span><br><span id="lunch"></span></div>
+    <div class="detail" id="noteBlock"><span class="label">Your ticket</span><br><span id="note"></span></div>
+    <div id="buttons">
+      <p>Can you make it?</p>
+      <button onclick="respond('acceptedBoth')">🍽️⚽️ Lunch + game</button>
+      <button class="secondary" onclick="respond('gameOnly')">⚽️ Game only</button>
+      <button class="decline" onclick="respond('declinedBoth')">🙁 Can't make it</button>
+    </div>
+    <div id="auth" class="hidden">
+      <p>Sign in with your Apple ID to send your reply:</p>
+      <div id="apple-sign-in-button"></div>
+    </div>
+  </div>
+  <div id="status"></div>
+</div>
+
+<script src="https://cdn.apple-cloudkit.com/ck/2/cloudkit.js" async
+        onload="boot()"></script>
+<script>
+// ── One-time setup (see web/README.md) ──────────────────────────────────
+// 1. Paste the API token you generate in the CloudKit Dashboard.
+// 2. Match the environment to the build that wrote the record:
+//    'development' for Xcode-run builds, 'production' for TestFlight/App Store.
+const API_TOKEN = 'PASTE_YOUR_CLOUDKIT_API_TOKEN_HERE';
+const ENVIRONMENT = 'development';
+const CONTAINER = 'iCloud.com.peteringham.VillaInghamTickets';
+// ────────────────────────────────────────────────────────────────────────
+
+let pendingResponse = null;
+let recordName = null;
+
+function boot() {
+  recordName = new URLSearchParams(location.search).get('id');
+  if (!recordName) { setTitle('Invalid invite link'); return; }
+  if (API_TOKEN.startsWith('PASTE')) { setTitle('Page not configured yet'); return; }
+
+  CloudKit.configure({
+    containers: [{
+      containerIdentifier: CONTAINER,
+      apiTokenAuth: { apiToken: API_TOKEN, persist: true,
+                      signInButton: { id: 'apple-sign-in-button', theme: 'black' } },
+      environment: ENVIRONMENT
+    }]
+  });
+  loadOffer();
+  CloudKit.getDefaultContainer().setUpAuth().then(user => {
+    if (user && pendingResponse) respond(pendingResponse);
+  });
+}
+
+function db() { return CloudKit.getDefaultContainer().publicCloudDatabase; }
+function setTitle(t) { document.getElementById('title').textContent = t; }
+function setStatus(t) { document.getElementById('status').textContent = t; }
+
+function loadOffer() {
+  db().fetchRecords(recordName).then(resp => {
+    if (resp.hasErrors) { setTitle('Invite not found'); return; }
+    const f = resp.records[0].fields;
+    setTitle(f.fixtureTitle.value + ' — ' + f.competition.value);
+    document.getElementById('kickoff').textContent =
+      new Date(f.kickoff.value).toLocaleString(undefined,
+        { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' });
+    document.getElementById('venue').textContent =
+      f.venueName.value + (f.venueAddress.value ? ' · ' + f.venueAddress.value : '');
+    if (f.lunchVenue && f.lunchVenue.value) {
+      let lunch = f.lunchVenue.value;
+      if (f.lunchTime) lunch += ' at ' + new Date(f.lunchTime.value)
+        .toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+      if (f.lunchAddress.value) lunch += ' · ' + f.lunchAddress.value;
+      document.getElementById('lunch').textContent = lunch;
+    } else {
+      document.getElementById('lunchBlock').classList.add('hidden');
+    }
+    if (f.handoverNote && f.handoverNote.value) {
+      document.getElementById('note').textContent = f.handoverNote.value;
+    } else {
+      document.getElementById('noteBlock').classList.add('hidden');
+    }
+    document.getElementById('details').classList.remove('hidden');
+    if (f.response.value && f.response.value !== 'pending') {
+      showDone(f.response.value);
+    }
+  });
+}
+
+function respond(value) {
+  const container = CloudKit.getDefaultContainer();
+  if (!container._auth || !container._auth._userIdentity) {
+    // Not signed in yet — remember the choice and show the sign-in button.
+    pendingResponse = value;
+    document.getElementById('auth').classList.remove('hidden');
+    setStatus('');
+    container.setUpAuth().then(user => { if (user) respond(value); });
+    return;
+  }
+  setStatus('Sending…');
+  db().fetchRecords(recordName).then(resp => {
+    if (resp.hasErrors) { setStatus('Something went wrong — try again.'); return; }
+    const record = resp.records[0];
+    record.fields.response = { value: value };
+    return db().saveRecords(record);
+  }).then(resp => {
+    if (!resp || resp.hasErrors) { setStatus('Couldn’t save your reply — try again.'); return; }
+    showDone(value);
+  });
+}
+
+function showDone(value) {
+  document.getElementById('buttons').classList.add('hidden');
+  document.getElementById('auth').classList.add('hidden');
+  const labels = {
+    acceptedBoth: '✅ You’re in for lunch and the game — see you there!',
+    gameOnly: '🎟️ You’re in for the game (skipping lunch).',
+    declinedBoth: '🙁 Reply sent — maybe next time!'
+  };
+  setStatus(labels[value] || 'Reply recorded.');
+}
+</script>
+</body>
+</html>
