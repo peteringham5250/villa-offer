@@ -45,11 +45,11 @@
   <div id="details" class="hidden">
     <div class="detail"><span class="label">Kickoff</span><br><span id="kickoff"></span></div>
     <div class="detail"><span class="label">Ground</span><br><span id="venue"></span></div>
-    <div class="detail" id="lunchBlock"><span class="label">Lunch first</span><br><span id="lunch"></span></div>
+    <div class="detail" id="lunchBlock"><span class="label">Meal first</span><br><span id="lunch"></span></div>
     <div class="detail" id="noteBlock"><span class="label">Your ticket</span><br><span id="note"></span></div>
     <div id="buttons">
       <p>Can you make it?</p>
-      <button onclick="respond('acceptedBoth')">🍽️⚽️ Lunch + game</button>
+      <button onclick="respond('acceptedBoth')">🍽️⚽️ Meal + game</button>
       <button class="secondary" onclick="respond('gameOnly')">⚽️ Game only</button>
       <button class="decline" onclick="respond('declinedBoth')">🙁 Can't make it</button>
     </div>
@@ -186,8 +186,8 @@ function showDone(value) {
   document.getElementById('buttons').classList.add('hidden');
   document.getElementById('auth').classList.add('hidden');
   const labels = {
-    acceptedBoth: '✅ You’re in for lunch and the game — see you there!',
-    gameOnly: '🎟️ You’re in for the game (skipping lunch).',
+    acceptedBoth: '✅ You’re in for the meal and the game — see you there!',
+    gameOnly: '🎟️ You’re in for the game (skipping the meal).',
     declinedBoth: '🙁 Reply sent — maybe next time!'
   };
   setStatus(labels[value] || 'Reply recorded.');
