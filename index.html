@@ -226,11 +226,12 @@ function sendReply(value, skipMessage) {
   }).then(resp => {
     if (!resp || resp.hasErrors) { throw (resp && resp.errors[0]) || new Error('save failed'); }
     pendingResponse = null;
-    showDone(value);
+    showDone(value, skipMessage && message);
   }).catch(err => {
     const code = err && (err.ckErrorCode || err.serverErrorCode);
     // If the message field itself is what's rejected, retry without it so
-    // the actual response (the important part) still gets through.
+    // the actual response (the important part) still gets through — but
+    // say so honestly rather than pretending the message sent too.
     if (code === 'BAD_REQUEST' && message && !skipMessage) {
       sendReply(value, true);
       return;
@@ -247,7 +248,7 @@ function sendReply(value, skipMessage) {
   });
 }
 
-function showDone(value) {
+function showDone(value, messageDropped) {
   document.getElementById('buttons').classList.add('hidden');
   document.getElementById('auth').classList.add('hidden');
   const labels = {
@@ -255,7 +256,11 @@ function showDone(value) {
     gameOnly: '🎟️ You’re in for the game (skipping the meal).',
     declinedBoth: '🙁 Reply sent — maybe next time!'
   };
-  setStatus(labels[value] || 'Reply recorded.');
+  let text = labels[value] || 'Reply recorded.';
+  if (messageDropped) {
+    text += ' (Your message couldn’t be saved this time — worth telling Peter directly too.)';
+  }
+  setStatus(text);
 }
 </script>
 </body>
