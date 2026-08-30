@@ -17,6 +17,7 @@
     .card { background: #2a1f25 !important; }
     /* Claret fails contrast on the dark card — sky blue carries the brand */
     h1 { color: #94BEE5 !important; }
+    textarea { background: #1c1418 !important; color: #f0e8ec !important; border-color: #4a3a42 !important; }
   }
   .card {
     max-width: 420px; width: 100%;
@@ -26,6 +27,19 @@
   h1 { color: #670E36; font-size: 1.3rem; margin: 0 0 4px; }
   .detail { margin: 12px 0; line-height: 1.5; }
   .label { font-size: .75rem; text-transform: uppercase; letter-spacing: .05em; opacity: .6; }
+  a.calendar-link {
+    display: block; width: 100%; margin: 14px 0; padding: 12px;
+    font-size: .95rem; font-weight: 600; border-radius: 12px;
+    text-align: center; text-decoration: none; box-sizing: border-box;
+    background: transparent; color: #670E36; border: 1.5px solid #670E36;
+  }
+  @media (prefers-color-scheme: dark) {
+    a.calendar-link { color: #94BEE5; border-color: #94BEE5; }
+  }
+  textarea {
+    width: 100%; box-sizing: border-box; margin-top: 6px; padding: 10px;
+    font: inherit; border-radius: 10px; border: 1px solid #d8cfd4; resize: vertical;
+  }
   button {
     display: block; width: 100%; margin: 10px 0; padding: 14px;
     font-size: 1rem; font-weight: 600; border: none; border-radius: 12px;
@@ -47,8 +61,10 @@
     <div class="detail"><span class="label">Ground</span><br><span id="venue"></span></div>
     <div class="detail" id="lunchBlock"><span class="label">Meal first</span><br><span id="lunch"></span></div>
     <div class="detail" id="noteBlock"><span class="label">Your ticket</span><br><span id="note"></span></div>
+    <a id="calendarLink" class="calendar-link" href="#">📅 Add to Calendar</a>
     <div id="buttons">
       <p>Can you make it?</p>
+      <textarea id="messageBox" rows="2" placeholder="Message back to Peter (optional)"></textarea>
       <button onclick="respond('acceptedBoth')">🍽️⚽️ Meal + game</button>
       <button class="secondary" onclick="respond('gameOnly')">⚽️ Game only</button>
       <button class="decline" onclick="respond('declinedBoth')">🙁 Can't make it</button>
@@ -113,6 +129,38 @@ function db() { return CloudKit.getDefaultContainer().publicCloudDatabase; }
 function setTitle(t) { document.getElementById('title').textContent = t; }
 function setStatus(t) { document.getElementById('status').textContent = t; }
 
+// YYYYMMDDTHHMMSSZ in UTC, as required by the .ics format.
+function icsDate(date) {
+  return date.toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
+}
+
+function buildCalendarLink(f) {
+  const start = new Date(f.kickoff.value);
+  const end = new Date(start.getTime() + 2 * 60 * 60 * 1000); // 2-hour default
+  const location = f.venueName.value + (f.venueAddress.value ? ', ' + f.venueAddress.value : '');
+  let description = f.competition.value;
+  if (f.lunchVenue && f.lunchVenue.value) {
+    description += '\\nMeal first: ' + f.lunchVenue.value;
+  }
+  const ics = [
+    'BEGIN:VCALENDAR',
+    'VERSION:2.0',
+    'PRODID:-//Villa Ingham Tickets//EN',
+    'BEGIN:VEVENT',
+    'UID:' + recordName + '@villa-offer',
+    'DTSTAMP:' + icsDate(new Date()),
+    'DTSTART:' + icsDate(start),
+    'DTEND:' + icsDate(end),
+    'SUMMARY:' + f.fixtureTitle.value,
+    'LOCATION:' + location,
+    'DESCRIPTION:' + description,
+    'END:VEVENT',
+    'END:VCALENDAR'
+  ].join('\r\n');
+  document.getElementById('calendarLink').href =
+    'data:text/calendar;charset=utf-8,' + encodeURIComponent(ics);
+}
+
 function loadOffer() {
   db().fetchRecords(recordName).then(resp => {
     if (resp.hasErrors) { setTitle('Invite not found'); return; }
@@ -137,6 +185,10 @@ function loadOffer() {
     } else {
       document.getElementById('noteBlock').classList.add('hidden');
     }
+    buildCalendarLink(f);
+    if (f.message && f.message.value) {
+      document.getElementById('messageBox').value = f.message.value;
+    }
     document.getElementById('details').classList.remove('hidden');
     if (f.response.value && f.response.value !== 'pending') {
       showDone(f.response.value);
@@ -159,10 +211,12 @@ function respond(value) {
 
 function sendReply(value) {
   setStatus('Sending your reply…');
+  const message = document.getElementById('messageBox').value.trim();
   db().fetchRecords(recordName).then(resp => {
     if (resp.hasErrors) { throw resp.errors[0]; }
     const record = resp.records[0];
     record.fields.response = { value: value };
+    record.fields.message = { value: message };
     return db().saveRecords(record);
   }).then(resp => {
     if (!resp || resp.hasErrors) { throw (resp && resp.errors[0]) || new Error('save failed'); }
