@@ -209,14 +209,19 @@ function respond(value) {
   sendReply(value);
 }
 
-function sendReply(value) {
+function sendReply(value, skipMessage) {
   setStatus('Sending your reply…');
   const message = document.getElementById('messageBox').value.trim();
   db().fetchRecords(recordName).then(resp => {
     if (resp.hasErrors) { throw resp.errors[0]; }
     const record = resp.records[0];
     record.fields.response = { value: value };
-    record.fields.message = { value: message };
+    // Explicit type: the very first write of a brand-new field needs to
+    // tell CloudKit what kind it is, or some environments reject the save
+    // outright (BAD_REQUEST) rather than inferring it.
+    if (message && !skipMessage) {
+      record.fields.message = { value: message, type: 'STRING' };
+    }
     return db().saveRecords(record);
   }).then(resp => {
     if (!resp || resp.hasErrors) { throw (resp && resp.errors[0]) || new Error('save failed'); }
@@ -224,6 +229,12 @@ function sendReply(value) {
     showDone(value);
   }).catch(err => {
     const code = err && (err.ckErrorCode || err.serverErrorCode);
+    // If the message field itself is what's rejected, retry without it so
+    // the actual response (the important part) still gets through.
+    if (code === 'BAD_REQUEST' && message && !skipMessage) {
+      sendReply(value, true);
+      return;
+    }
     if (code === 'ACCESS_DENIED' || code === 'PERMISSION_VIOLATION') {
       setStatus('⚠️ Reply blocked by permissions — tell Pete his CloudKit settings need the _icloud Write box ticked.');
     } else if (code === 'AUTHENTICATION_REQUIRED' || code === 'AUTH_PERSIST_ERROR') {
